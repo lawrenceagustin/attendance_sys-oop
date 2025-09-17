@@ -1,9 +1,16 @@
 <?php
 session_start();
-if (isset($_SESSION['user_id'])) {
-  $role = $_SESSION['role'];
-  header("Location: " . ($role === 'admin' ? 'admin_dashboard.php' : 'student_dashboard.php'));
-  exit;
+if (isset($_SESSION['user_id']) && isset($_SESSION['role'])) {
+    if ($_SESSION['role'] === 'admin') {
+        header("Location: admin_dashboard.php");
+        exit;
+    } elseif ($_SESSION['role'] === 'student') {
+        header("Location: student_dashboard.php");
+        exit;
+    } else {
+        // Unknown role → destroy session to avoid loop
+        session_destroy();
+    }
 }
 ?>
 

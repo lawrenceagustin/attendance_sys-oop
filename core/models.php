@@ -89,6 +89,7 @@ class Student extends User {
     private $course_id;
     private $year_level;
     private $student_number;
+    private $excuseLetterModel;
 
     public function __construct($userData = null, $profileData = null) {
         parent::__construct($userData);
@@ -97,33 +98,58 @@ class Student extends User {
             $this->year_level = $profileData['year_level'] ?? null;
             $this->student_number = $profileData['student_number'] ?? null;
         }
+        $this->excuseLetterModel = new ExcuseLetterModel();
     }
 
     public function registerProfile($user_id, $course_id, $year_level, $student_number = null) {
-        $this->execute("INSERT INTO student_profiles (user_id, course_id, year_level, student_number) VALUES (:uid,:cid,:y,:sn)", [
+        $this->execute("INSERT INTO student_profiles (user_id, course_id, year_level, student_number) 
+                        VALUES (:uid,:cid,:y,:sn)", [
             ':uid'=>$user_id, ':cid'=>$course_id, ':y'=>$year_level, ':sn'=>$student_number
         ]);
         return $this->lastInsertId();
     }
 
     public function loadProfileByUserId($user_id) {
-        return $this->selectOne("SELECT sp.*, c.name as course_name FROM student_profiles sp JOIN courses c ON sp.course_id=c.id WHERE sp.user_id = :uid", [':uid'=>$user_id]);
+        return $this->selectOne("SELECT sp.*, c.name as course_name 
+                                 FROM student_profiles sp 
+                                 JOIN courses c ON sp.course_id=c.id 
+                                 WHERE sp.user_id = :uid", 
+                                [':uid'=>$user_id]);
     }
 
     public function getAttendanceHistory($student_id) {
-        $sql = "SELECT a.*, c.name as course_name FROM attendance a JOIN courses c ON a.course_id=c.id WHERE a.student_id = :sid ORDER BY a.date DESC";
+        $sql = "SELECT a.*, c.name as course_name 
+                  FROM attendance a 
+                  JOIN courses c ON a.course_id=c.id 
+                 WHERE a.student_id = :sid 
+              ORDER BY a.date DESC";
         return $this->select($sql, [':sid'=>$student_id]);
+    }
+
+    // Submit using model directly if needed (but most handlers use session user id)
+    public function submitExcuseLetter($reason, $attachment = null, $course_id = null) {
+        return $this->excuseLetterModel->submit($this->getId(), $course_id, $reason, $attachment);
+    }
+
+    public function getMyExcuseLettersByUserId($user_id) {
+        return $this->excuseLetterModel->getByStudent($user_id);
     }
 }
 
 class Admin extends User {
+    private $excuseLetterModel;
+
     public function __construct($data = null) {
         parent::__construct($data);
+        $this->excuseLetterModel = new ExcuseLetterModel();
     }
 
     public function addCourse($name, $code = null, $description = null, $start_time = '08:00:00') {
-        $sql = "INSERT INTO courses (name,code,description,start_time) VALUES (:name,:code,:desc,:st)";
-        $this->execute($sql, [':name'=>$name, ':code'=>$code, ':desc'=>$description, ':st'=>$start_time]);
+        $sql = "INSERT INTO courses (name,code,description,start_time) 
+                VALUES (:name,:code,:desc,:st)";
+        $this->execute($sql, [
+            ':name'=>$name, ':code'=>$code, ':desc'=>$description, ':st'=>$start_time
+        ]);
         return $this->lastInsertId();
     }
 
@@ -173,6 +199,15 @@ class Admin extends User {
         $this->execute("DELETE FROM courses WHERE id=:id", [':id'=>$id]);
         return ['ok'=>true, 'message'=>"Course deleted successfully!"];
     }
+
+    // Admin wrapper methods (use model)
+    public function getExcuseLetters($course_id = null) {
+        return $this->excuseLetterModel->getAll($course_id);
+    }
+
+    public function reviewExcuseLetter($id, $status) {
+        return $this->excuseLetterModel->updateStatus($id, $status, $this->getId());
+    }
 }
 
 class Course extends BaseModel {
@@ -212,4 +247,65 @@ class AttendanceModel extends BaseModel {
             ':time_in'=>$time_in, ':status'=>$status, ':is_late'=>$is_late, ':note'=>$note
         ]);
     }
+}
+
+// Excuse Letter Model (student_id refers to users.id)
+class ExcuseLetterModel extends BaseModel {
+
+    // Student submits excuse letter (student_id = users.id)
+    public function submit($student_id, $course_id, $reason, $attachment = null) {
+        $sql = "INSERT INTO excuse_letters (student_id, course_id, reason, attachment) 
+                VALUES (:student_id, :course_id, :reason, :attachment)";
+        $this->execute($sql, [
+            ':student_id' => $student_id,
+            ':course_id' => $course_id,
+            ':reason' => $reason,
+            ':attachment' => $attachment
+        ]);
+        return $this->lastInsertId();
+    }
+
+    // Get all excuse letters of a student (student_id = users.id)
+    public function getByStudent($student_id) {
+        $sql = "SELECT el.*, c.name AS course_name, u.full_name AS student_name
+                FROM excuse_letters el
+                LEFT JOIN courses c ON el.course_id = c.id
+                LEFT JOIN users u ON el.student_id = u.id
+                WHERE el.student_id = :student_id 
+                ORDER BY el.created_at DESC";
+        return $this->select($sql, [':student_id' => $student_id]);
+    }
+
+    // Admin: get all excuse letters, optional filter by course
+    public function getAll($course_id = null) {
+        if ($course_id) {
+            $sql = "SELECT el.*, u.full_name AS student_name, c.name as course_name 
+                    FROM excuse_letters el
+                    LEFT JOIN users u ON el.student_id = u.id
+                    LEFT JOIN courses c ON el.course_id = c.id
+                    WHERE el.course_id = :course_id
+                    ORDER BY el.created_at DESC";
+            return $this->select($sql, [':course_id' => $course_id]);
+        } else {
+            $sql = "SELECT el.*, u.full_name AS student_name, c.name as course_name 
+                    FROM excuse_letters el
+                    LEFT JOIN users u ON el.student_id = u.id
+                    LEFT JOIN courses c ON el.course_id = c.id
+                    ORDER BY el.created_at DESC";
+            return $this->select($sql);
+        }
+    }
+
+    // Admin: approve or reject an excuse letter
+    public function updateStatus($id, $status, $admin_id) {
+        $sql = "UPDATE excuse_letters 
+                SET status = :status, reviewed_by = :admin_id, reviewed_at = NOW() 
+                WHERE id = :id";
+        return $this->execute($sql, [
+            ':status' => $status,
+            ':admin_id' => $admin_id,
+            ':id' => $id
+        ]);
+    }
+
 }

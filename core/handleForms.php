@@ -36,6 +36,7 @@ switch ($action) {
         $student->registerProfile($userId, $course_id, $year_level, $student_number);
 
         respond(true, 'Student registered successfully.');
+        break;
     }
 
     case 'register_admin': {
@@ -52,6 +53,7 @@ switch ($action) {
         $user->setPassword($password);
         $user->save();
         respond(true, 'Admin registered.');
+        break;
     }
 
     case 'login': {
@@ -65,6 +67,7 @@ switch ($action) {
         $_SESSION['role'] = $auth->getRole();
         $_SESSION['full_name'] = $auth->getFullName();
         respond(true, 'Logged in.', ['role'=>$_SESSION['role']]);
+        break;
     }
 
     case 'add_course': {
@@ -80,6 +83,7 @@ switch ($action) {
         $adm = new Admin();
         $adm->addCourse($name, $code, $desc, $start_time);
         respond(true, 'Course added.');
+        break;
     }
 
     case 'edit_course': {
@@ -96,6 +100,7 @@ switch ($action) {
         $adm = new Admin();
         $ok = $adm->updateCourse($id, $name, $code, $desc, $start_time);
         respond($ok, $ok ? 'Course updated!' : 'Error updating course');
+        break;
     }
 
     case 'delete_course': {
@@ -106,6 +111,7 @@ switch ($action) {
         $adm = new Admin();
         $result = $adm->deleteCourse($id);
         respond($result['ok'], $result['message']);
+        break;
     }
 
     case 'file_attendance': {
@@ -123,6 +129,72 @@ switch ($action) {
         $att = new AttendanceModel();
         $ok = $att->fileAttendance($student_id, $course_id, $year_level, $date, $time_in, 'present', $note);
         respond($ok, $ok ? 'Attendance filed.' : 'Attendance filing failed (maybe already filed).');
+        break;
+    }
+
+    // Student submits an excuse letter
+    case 'submit_excuse_letter': {
+        if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'student') {
+            respond(false, 'Unauthorized.');
+        }
+
+        $student_id = $_SESSION['user_id']; // users.id
+        $course_id  = intval($_POST['course_id'] ?? 0);
+        $reason     = trim($_POST['reason'] ?? '');
+        $attachment = trim($_POST['attachment'] ?? null);
+
+        if (!$course_id || !$reason) respond(false, 'Course and reason are required.');
+
+        $model = new ExcuseLetterModel();
+        $id = $model->submit($student_id, $course_id, $reason, $attachment);
+
+        respond(true, 'Excuse letter submitted.', ['id'=>$id]);
+        break;
+    }
+
+    // Student views their own excuse letters
+    case 'view_my_excuse_letters': {
+        if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'student') {
+            respond(false, 'Unauthorized.');
+        }
+
+        $student_id = $_SESSION['user_id']; // users.id
+        $model = new ExcuseLetterModel();
+        $rows = $model->getByStudent($student_id);
+
+        respond(true, 'Fetched successfully.', ['letters'=>$rows]);
+        break;
+    }
+    // Admin views all excuse letters (filterable by course/program)
+    case 'view_all_excuse_letters': {
+        if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
+            respond(false, 'Unauthorized.');
+        }
+
+        $course_id = intval($_POST['course_id'] ?? 0);
+        $model = new ExcuseLetterModel();
+        $rows = $model->getAll($course_id ?: null);
+
+        respond(true, 'Fetched successfully.', ['letters'=>$rows]);
+        break;
+    }
+    // Admin approves or rejects an excuse letter
+    case 'update_excuse_status': {
+        if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
+            respond(false, 'Unauthorized.');
+        }
+
+        $id     = intval($_POST['id'] ?? 0);
+        $status = $_POST['status'] ?? '';
+        if (!$id || !in_array($status, ['approved','rejected'])) {
+            respond(false, 'Invalid request.');
+        }
+
+        $model = new ExcuseLetterModel();
+        $ok = $model->updateStatus($id, $status, $_SESSION['user_id']);
+
+        respond($ok, $ok ? "Excuse letter $status." : 'Update failed.');
+        break;
     }
 
     default:

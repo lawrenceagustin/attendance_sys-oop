@@ -98,6 +98,23 @@ CREATE TABLE `users` (
 INSERT INTO `users` (`id`, `email`, `password`, `role`, `full_name`, `created_at`) VALUES
 (1, 'suisei@example.com', '$2y$10$q3UHl6ZcYeeI9phaYL/Q4eI5CI4ihgC5brDEWmucvQG1pzulU8zxa', 'admin', 'Admin Lawrence', '2025-09-03 17:39:57');
 
+
+
+CREATE TABLE `excuse_letters` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `student_id` INT(11) NOT NULL,
+  `course_id` INT(11) NOT NULL,
+  `reason` TEXT NOT NULL,
+  `attachment` VARCHAR(255) DEFAULT NULL, -- optional file upload
+  `status` ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `reviewed_at` TIMESTAMP NULL DEFAULT NULL,
+  `reviewed_by` INT(11) DEFAULT NULL, -- admin user id
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+
 --
 -- Indexes for dumped tables
 --
